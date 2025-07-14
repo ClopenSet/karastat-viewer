@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+	"math"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -83,8 +84,8 @@ func main() {
 				for i, d := range data {
 					counts[i] = d.Count
 				}
-				getRatio := PercentileClip(counts, 0.95)
-				getColor := RedGreenColor
+				getRatio := LogNormalizer(counts)
+				getColor := RainbowColor
 
 				var results []HeatmapColor
 				for _, item := range data {
@@ -128,8 +129,41 @@ func PercentileClip(counts []int, percentile float64) func(int) float64 {
 	}
 }
 
-func RedGreenColor(ratio float64) string {
-	r := int(255 * ratio)
-	g := int(255 * (1 - ratio))
-	return fmt.Sprintf("rgba(%d,%d,60,0.7)", r, g)
+// RainbowColor maps a normalized ratio [0.0, 1.0] to a perceptual color
+// using the HSL color space.
+//
+// The hue range is set from 270° (purple-blue) to 0° (red), covering the
+// full perceptual "rainbow" gradient: purple → blue → cyan → green → yellow → red.
+// Even the lowest input values (e.g., v = 1) produce a small non-zero ratio
+// when using logarithmic normalization (e.g., log(2)/log(max+1)).
+// Therefore, to ensure we still see the coldest colors (near hue=270°),
+// we expand the hue range to start from 270°, not 240°.
+
+func RainbowColor(ratio float64) string {
+    // Hue from 270° (purple) to 0° (red)
+    h := int(270 * (1 - ratio))  // ratio=0 → purple =1 → red
+    return fmt.Sprintf("hsl(%d, 100%%, 50%%)", h)
+}
+
+func LogNormalizer(counts []int) func(int) float64 {
+	max := 0
+	for _, v := range counts {
+		if v > max {
+			max = v
+		}
+	}
+	if max <= 0 {
+		return func(int) float64 { return 0 }
+	}
+	logMax := math.Log(float64(max) + 1)
+	return func(v int) float64 {
+		if v < 0 {
+			v = 0
+		}
+		r := math.Log(float64(v)+1) / logMax
+		if r > 1 {
+			return 1
+		}
+		return r
+	}
 }
